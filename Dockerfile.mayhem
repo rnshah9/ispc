@@ -34,7 +34,7 @@ RUN python3 ./alloy.py -b --version=$LLVM_VERSION --selfbuild --verbose $EXTRA_B
     rm -rf $LLVM_HOME/build-$LLVM_VERSION $LLVM_HOME/llvm-$LLVM_VERSION $LLVM_HOME/bin-"$LLVM_VERSION"_temp $LLVM_HOME/build-"$LLVM_VERSION"_temp
 ENV PATH=$LLVM_HOME/bin-$LLVM_VERSION/bin:$PATH
 
-FROM llvm_build_only AS ispc_build
+FROM llvm_build_only AS builder
 
 ARG LLVM_VERSION
 
@@ -47,3 +47,12 @@ WORKDIR /home/src/ispc/build
 RUN cmake .. -DX86_ENABLED=ON -DARM_ENABLED=ON -DCMAKE_CXX_FLAGS=-Werror && make -j`nproc` && make check-all
 # Add ISPC to PATH
 ENV PATH=/home/ispc/bin:$PATH
+
+RUN mkdir -p /deps
+RUN ldd /home/src/ispc/build/bin/ispc | tr -s '[:blank:]' '\n' | grep '^/' | xargs -I % sh -c 'cp % /deps;'
+
+FROM ubuntu:20.04 as package
+
+COPY --from=builder /deps /deps
+COPY --from=builder /home/src/ispc/build/bin/ispc /home/src/ispc/build/bin/ispc
+ENV LD_LIBRARY_PATH=/deps
