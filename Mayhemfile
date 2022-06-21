@@ -1,8 +1,6 @@
-project: rnshah9/ispc
+project: ispc
 target: ispc
-image: ghcr.io/rnshah9/playground:ispc
-tests: null
 
 cmds:
-  - cmd: /home/src/ispc/build/bin/ispc @@
+  - cmd: /home/src/ispc/build/bin/ispc /test.c
  #    filepath: /test.c
