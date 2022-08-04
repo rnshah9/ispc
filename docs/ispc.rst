@@ -1604,9 +1604,10 @@ The following reserved words from C89 are also reserved in ``ispc``:
 
 ``bool``, ``delete``, ``export``, ``cdo``, ``cfor``, ``cif``, ``cwhile``,
 ``false``, ``float16``, ``foreach``, ``foreach_active``, ``foreach_tiled``,
-``foreach_unique``, ``in``, ``inline``, ``noinline``, ``__vectorcall``, ``int8``, ``int16``,
-``int32``, ``int64``, ``launch``, ``new``, ``print``, ``uint8``, ``uint16``,
-``uint32``, ``uint64``, ``soa``, ``sync``, ``task``, ``true``, ``uniform``, and ``varying``.
+``foreach_unique``, ``in``, ``inline``, ``noinline``, ``__regcall``,
+``__vectorcall``, ``int8``, ``int16``, ``int32``, ``int64``, ``launch``,
+``new``, ``print``, ``uint8``, ``uint16``, ``uint32``, ``uint64``, ``soa``,
+``sync``, ``task``, ``true``, ``uniform``, and ``varying``.
 
 
 Lexical Structure
@@ -1766,11 +1767,11 @@ The following identifiers are reserved as language keywords: ``bool``,
 ``enum``, ``export``, ``extern``, ``false``, ``float``, ``float16``, ``for``,
 ``foreach``, ``foreach_active``, ``foreach_tiled``, ``foreach_unique``,
 ``goto``, ``if``, ``in``, ``inline``, ``noinline``, ``int``, ``int8``,
-``int16``, ``int32``, ``int64``, ``launch``, ``NULL``, ``print``, ``return``,
-``signed``, ``sizeof``, ``soa``, ``static``, ``struct``, ``switch``,
-``sync``, ``task``, ``true``, ``typedef``, ``uint``, ``uint8``,
+``int16``, ``int32``, ``int64``, ``invoke_sycl``, ``launch``, ``NULL``,
+``print``, ``return``, ``signed``, ``sizeof``, ``soa``, ``static``, ``struct``,
+``switch``, ``sync``, ``task``, ``true``, ``typedef``, ``uint``, ``uint8``,
 ``uint16``, ``uint32``, ``uint64``, ``uniform``, ``union``, ``unsigned``,
-``varying``, ``__vectorcall``, ``void``, ``volatile``, ``while``.
+``varying``, ``__regcall``, ``__vectorcall``, ``void``, ``volatile``, ``while``.
 
 ``ispc`` defines the following operators and punctuation:
 
@@ -5328,6 +5329,11 @@ qualifier.
 ``__vectorcall`` can only be used for ``extern "C"`` function declarations and
 on Windows OS.
 
+Also ``extern "C"`` functions can be marked with ``__regcall`` calling convention.
+This calling convention makes return values and function arguments passed through
+registers in most cases. Note, that ``__regcall3__`` prefix will be added to the
+function name.
+
 **Only a single function call is made back to C++ for the entire gang of
 running program instances**.  Furthermore, function calls back to C/C++ are not
 made if none of the program instances want to make the call.  For example,
@@ -5392,6 +5398,30 @@ that takes a scalar parameter.
 This code calls ``erf()`` once for each active program instance, passing it
 the program instance's value of ``v`` and storing the result in the
 instance's ``result`` value.
+
+``extern "C"`` function may also have a definition. On GPU it is intended to make
+a function (not a kernel!) callable from a different module. On CPU it is not
+advised to have ``extern "C"`` functions with definitions and to use ``export``
+functions instead, which are designed to be entry points from C/C++.
+
+On GPU ISPC experimentally supports calls to SYCL/DPC++ device functions using
+`invoke_sycl` construct. `invoke_sycl` accepts only functions declared as ``extern "SYCL"``.
+``extern "SYCL"`` declaration is similar to ``extern "C"``, but in addition it means
+that function signature will be modified if needed to align with SYCL/DPC++ backend (IGC) ABI.
+
+Below is a comparison between ``export``, ``extern``, ``extern "C"`` and ``extern "SYCL"`` functions.
+
+=============================================== ============= =============== ================== ============
+Feature                                          ``export``   ``extern "C"``  ``extern "SYCL"``  ``extern``
+----------------------------------------------- ------------- --------------- ------------------ ------------
+Varying parameters support                      No            Yes             Yes                Yes
+Dispatch function for multi-target compilation  Yes           Yes             Yes                No
+Mangled name                                    No            No              No                 Yes
+Mask parameter                                  No            No              No                 Yes
+Calling convention specifier support            No            Yes             Yes                No
+Declaration in header file                      Yes           No              No                 No
+SYCL/DPC++ backend ABI compliance               No            No              Yes                No
+=============================================== ============= =============== ================== ============
 
 Data Layout
 -----------

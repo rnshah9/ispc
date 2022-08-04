@@ -415,6 +415,12 @@ void Module::AddGlobalVariable(const std::string &name, const Type *type, Expr *
         return;
     }
 
+    if (storageClass == SC_EXTERN_SYCL) {
+        Error(pos, "extern \"SYCL\" qualifier can only be used for "
+                   "functions.");
+        return;
+    }
+
     if (type->IsVoidType()) {
         Error(pos, "\"void\" type global variable is illegal.");
         return;
@@ -512,7 +518,8 @@ void Module::AddGlobalVariable(const std::string &name, const Type *type, Expr *
 
         // If the type doesn't match with the previous one, issue an error.
         if (!Type::Equal(sym->type, type) ||
-            (sym->storageClass != SC_EXTERN && sym->storageClass != SC_EXTERN_C && sym->storageClass != storageClass)) {
+            (sym->storageClass != SC_EXTERN && sym->storageClass != SC_EXTERN_C &&
+             sym->storageClass != SC_EXTERN_SYCL && sym->storageClass != storageClass)) {
             Error(pos,
                   "Definition of variable \"%s\" conflicts with "
                   "definition at %s:%d.",
@@ -524,7 +531,8 @@ void Module::AddGlobalVariable(const std::string &name, const Type *type, Expr *
         Assert(gv != NULL);
 
         // And issue an error if this is a redefinition of a variable
-        if (gv->hasInitializer() && sym->storageClass != SC_EXTERN && sym->storageClass != SC_EXTERN_C) {
+        if (gv->hasInitializer() && sym->storageClass != SC_EXTERN && sym->storageClass != SC_EXTERN_C &&
+            sym->storageClass != SC_EXTERN_SYCL) {
             Error(pos,
                   "Redefinition of variable \"%s\" is illegal. "
                   "(Previous definition at %s:%d.)",
@@ -721,7 +729,7 @@ static void lCheckForStructParameters(const FunctionType *ftype, SourcePos pos) 
  */
 void Module::AddFunctionDeclaration(const std::string &name, const FunctionType *functionType,
                                     StorageClass storageClass, bool isInline, bool isNoInline, bool isVectorCall,
-                                    SourcePos pos) {
+                                    bool isRegCall, SourcePos pos) {
     Assert(functionType != NULL);
 
     // If a global variable with the same name has already been declared
@@ -785,7 +793,7 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
         }
     }
 
-    if (storageClass == SC_EXTERN_C) {
+    if (storageClass == SC_EXTERN_C || storageClass == SC_EXTERN_SYCL) {
         // Make sure the user hasn't supplied both an 'extern "C"' and a
         // 'task' qualifier with the function
         if (functionType->isTask) {
@@ -821,7 +829,7 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
     }
 
     // Get the LLVM FunctionType
-    bool disableMask = (storageClass == SC_EXTERN_C);
+    bool disableMask = (storageClass == SC_EXTERN_C || storageClass == SC_EXTERN_SYCL);
     llvm::FunctionType *llvmFunctionType = functionType->LLVMFunctionType(g->ctx, disableMask);
     if (llvmFunctionType == NULL)
         return;
@@ -837,14 +845,9 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
         (storageClass != SC_EXTERN))
         linkage = llvm::GlobalValue::InternalLinkage;
 
-    std::string functionName = name;
-    if (storageClass != SC_EXTERN_C) {
-        functionName += functionType->Mangle();
-        // If we treat generic as smth, we should have appropriate mangling
-        if (g->mangleFunctionsWithTarget) {
-            functionName += g->target->GetISAString();
-        }
-    }
+    auto [name_pref, name_suf] = functionType->GetFunctionMangledName(false);
+    std::string functionName = name_pref + name + name_suf;
+
     llvm::Function *function = llvm::Function::Create(llvmFunctionType, linkage, functionName.c_str(), module);
 
     if (g->target_os == TargetOS::windows) {
@@ -860,7 +863,7 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
     }
     // Set function attributes: we never throw exceptions
     function->setDoesNotThrow();
-    if (storageClass != SC_EXTERN_C && isInline) {
+    if ((storageClass != SC_EXTERN_C) && (storageClass != SC_EXTERN_SYCL) && isInline) {
         function->addFnAttr(llvm::Attribute::AlwaysInline);
     }
 
@@ -876,6 +879,13 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
         }
     }
 
+    if (isRegCall) {
+        if ((storageClass != SC_EXTERN_C) && (storageClass != SC_EXTERN_SYCL)) {
+            Error(pos, "Illegal to use \"__regcall\" qualifier on non-extern function \"%s\".", name.c_str());
+            return;
+        }
+    }
+
     if (isNoInline) {
         function->addFnAttr(llvm::Attribute::NoInline);
     }
@@ -886,10 +896,7 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
             function->addParamAttr(0, llvm::Attribute::NoAlias);
         }
     }
-    if (((isVectorCall) && (storageClass == SC_EXTERN_C)) || (storageClass != SC_EXTERN_C)) {
-        g->target->markFuncWithCallingConv(function);
-    }
-
+    function->setCallingConv(functionType->GetCallingConv());
     g->target->markFuncWithTargetAttr(function);
 
     // Make sure that the return type isn't 'varying' or vector typed if
@@ -904,22 +911,11 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
     if (functionType->isTask && functionType->GetReturnType()->IsVoidType() == false)
         Error(pos, "Task-qualified functions must have void return type.");
 
-    // This limitation is due to ABI incompatibility between ISPC/ESIMD.
-    // ESIMD makes return value optimization transferring return value to the
-    // argument of the function.
-    if (functionType->IsISPCExternal() && functionType->GetReturnType()->IsVoidType() == false)
-        Warning(pos, "Export and extern \"C\"-qualified functions must have void return type for Xe target.");
-
-    if (functionType->isExported || functionType->isExternC || functionType->IsISPCExternal() ||
-        functionType->IsISPCKernel()) {
+    if (functionType->isExported || functionType->isExternC || functionType->isExternSYCL ||
+        functionType->IsISPCExternal() || functionType->IsISPCKernel()) {
         lCheckForStructParameters(functionType, pos);
     }
 
-    // Mark ISPC external functions as SPIR_FUNC for Xe.
-    if (functionType->IsISPCExternal() && disableMask) {
-        function->setCallingConv(llvm::CallingConv::SPIR_FUNC);
-        function->setDSOLocal(true);
-    }
     // Mark with corresponding attribute
     if (g->target->isXeTarget()) {
         if (functionType->IsISPCKernel()) {
@@ -953,12 +949,13 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
         // specify when this is not the case, but this should be the
         // default.)  Set parameter attributes accordingly.  (Only for
         // uniform pointers, since varying pointers are int vectors...)
-        if (!functionType->isTask && ((CastType<PointerType>(argType) != NULL && argType->IsUniformType() &&
-                                       // Exclude SOA argument because it is a pair {struct *, int}
-                                       // instead of pointer
-                                       !CastType<PointerType>(argType)->IsSlice()) ||
+        if (!functionType->isTask && !functionType->isExternSYCL &&
+            ((CastType<PointerType>(argType) != NULL && argType->IsUniformType() &&
+              // Exclude SOA argument because it is a pair {struct *, int}
+              // instead of pointer
+              !CastType<PointerType>(argType)->IsSlice()) ||
 
-                                      CastType<ReferenceType>(argType) != NULL)) {
+             CastType<ReferenceType>(argType) != NULL)) {
 
             function->addParamAttr(i, llvm::Attribute::NoAlias);
 #if 0
@@ -966,7 +963,6 @@ void Module::AddFunctionDeclaration(const std::string &name, const FunctionType 
             function->addAttribute(i+1, llvm::Attribute::constructAlignmentFromInt(align));
 #endif
         }
-
         if (symbolTable->LookupFunction(argName.c_str()))
             Warning(argPos,
                     "Function parameter \"%s\" shadows a function "
@@ -2616,23 +2612,32 @@ static void lCreateDispatchFunction(llvm::Module *module, llvm::Function *setISA
     // type is the same across all architectures, however in different
     // modules it may have dissimilar names. The loop below works this
     // around.
-
+    unsigned int callingConv = llvm::CallingConv::C;
     for (int i = 0; i < Target::NUM_ISAS; ++i) {
         if (funcs.func[i]) {
 
             targetFuncs[i] =
                 llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage, funcs.func[i]->getName(), module);
-            g->target->markFuncWithCallingConv(targetFuncs[i]);
+            // Calling convention should be the same for all dispatched functions
+            callingConv = funcs.FTs[i]->GetCallingConv();
+            targetFuncs[i]->setCallingConv(callingConv);
+
         } else
             targetFuncs[i] = NULL;
     }
 
     bool voidReturn = ftype->getReturnType()->isVoidTy();
 
+    std::string functionName = name;
+    if (callingConv == llvm::CallingConv::X86_RegCall) {
+        g->target->markFuncNameWithRegCallPrefix(functionName);
+    }
+
     // Now we can emit the definition of the dispatch function..
     llvm::Function *dispatchFunc =
-        llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage, name.c_str(), module);
-    g->target->markFuncWithCallingConv(dispatchFunc);
+        llvm::Function::Create(ftype, llvm::GlobalValue::ExternalLinkage, functionName.c_str(), module);
+    dispatchFunc->setCallingConv(callingConv);
+
     llvm::BasicBlock *bblock = llvm::BasicBlock::Create(*g->ctx, "entry", dispatchFunc);
 
     // Start by calling out to the function that determines the system's
@@ -2688,15 +2693,11 @@ static void lCreateDispatchFunction(llvm::Module *module, llvm::Function *setISA
         }
         if (voidReturn) {
             llvm::CallInst *callInst = llvm::CallInst::Create(targetFuncs[i], args, "", callBBlock);
-            if (g->calling_conv == CallingConv::x86_vectorcall) {
-                callInst->setCallingConv(llvm::CallingConv::X86_VectorCall);
-            }
+            callInst->setCallingConv(targetFuncs[i]->getCallingConv());
             llvm::ReturnInst::Create(*g->ctx, callBBlock);
         } else {
             llvm::CallInst *callInst = llvm::CallInst::Create(targetFuncs[i], args, "ret_value", callBBlock);
-            if (g->calling_conv == CallingConv::x86_vectorcall) {
-                callInst->setCallingConv(llvm::CallingConv::X86_VectorCall);
-            }
+            callInst->setCallingConv(targetFuncs[i]->getCallingConv());
             llvm::ReturnInst::Create(*g->ctx, callInst, callBBlock);
         }
 

@@ -115,7 +115,7 @@ class SymbolTable;
 class Type;
 struct VariableDeclaration;
 
-enum StorageClass { SC_NONE, SC_EXTERN, SC_STATIC, SC_TYPEDEF, SC_EXTERN_C };
+enum StorageClass { SC_NONE, SC_EXTERN, SC_STATIC, SC_TYPEDEF, SC_EXTERN_C, SC_EXTERN_SYCL };
 
 // Enumerant for address spaces.
 enum class AddressSpace {
@@ -242,10 +242,16 @@ class Target {
         of the structure where the element is located. */
     llvm::Value *StructOffset(llvm::Type *type, int element, llvm::BasicBlock *insertAtEnd);
 
+    /** Update function name with __regcall3_ prefix. */
+    void markFuncNameWithRegCallPrefix(std::string &funcName) const;
+
     /** Mark LLVM function with target specific attribute, if required. */
     void markFuncWithTargetAttr(llvm::Function *func);
 
-    /** Set LLVM function with Calling Convention. */
+    /** Set LLVM function with Calling Convention.
+        The usage of this function is deprecated. The preferred way is to use
+        llvm::Function::setCallingConv(llvm::CallingConv) and FunctionType::GetCallingConv())
+    */
     void markFuncWithCallingConv(llvm::Function *func);
 
     const llvm::Target *getTarget() const { return m_target; }
@@ -781,6 +787,7 @@ enum {
     COST_SIMPLE_ARITH_LOGIC_OP = 1,
     COST_SYNC = 32,
     COST_TASK_LAUNCH = 32,
+    COST_INVOKE = 32,
     COST_TYPECAST_COMPLEX = 4,
     COST_TYPECAST_SIMPLE = 1,
     COST_UNIFORM_IF = 2,

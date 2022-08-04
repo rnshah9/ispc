@@ -463,7 +463,7 @@ class FunctionEmitContext {
     /** Emits addrspacecast instruction. Depending on atEntryBlock it is generated in
         alloca block or in the current block.
     */
-    llvm::Value *AddrSpaceCast(llvm::Value *val, AddressSpace as, bool atEntryBlock = false);
+    llvm::Value *AddrSpaceCastInst(llvm::Value *val, AddressSpace as, bool atEntryBlock = false);
 
     /** Emits an alloca instruction to allocate stack storage of the given
         size.  If a non-zero alignment is specified, the object is also
@@ -563,6 +563,11 @@ class FunctionEmitContext {
     void SyncInst();
 
     llvm::Instruction *ReturnInst();
+
+    /** Emits code for invoke_sycl*/
+    llvm::Value *InvokeSyclInst(llvm::Value *func, const FunctionType *funcType,
+                                const std::vector<llvm::Value *> &args);
+
 #ifdef ISPC_XE_ENABLED
     /** Emit genx_simdcf_any intrinsic.
         Required when Xe hardware mask is emitted. */
@@ -604,6 +609,11 @@ class FunctionEmitContext {
     /** Check if current control flow block is inside Xe SIND CF
         Required when Xe hardware mask is emitted. */
     bool inXeSimdCF() const;
+
+    /** This function checks addrspace of function parameter on paramIndex and returns
+        val with casted addrspace if required. If cast is not required, original val is returned*/
+    llvm::Value *XeUpdateAddrSpaceForParam(llvm::Value *val, const llvm::FunctionType *fType,
+                                           const unsigned int paramIndex, bool atEntryBlock = false);
 
 #endif
     /** Enables emitting of genx.any intrinsics and the control flow which is

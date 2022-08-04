@@ -359,6 +359,8 @@ void Function::emitCode(FunctionEmitContext *ctx, llvm::Function *function, Sour
     } else {
         // Regular, non-task function or GPU task
         llvm::Function::arg_iterator argIter = function->arg_begin();
+        llvm::FunctionType *fType = type->LLVMFunctionType(g->ctx);
+        Assert(fType->getFunctionNumParams() >= args.size());
         for (unsigned int i = 0; i < args.size(); ++i, ++argIter) {
             Symbol *argSym = args[i];
             if (argSym == NULL)
@@ -375,9 +377,12 @@ void Function::emitCode(FunctionEmitContext *ctx, llvm::Function *function, Sour
             // define dso_local spir_func void @test(%S addrspace(4)* noalias %s)
             // addrspacecast %S addrspace(4)* %s to %S*
             llvm::Value *addrCasted = &*argIter;
-            if (type->RequiresAddrSpaceCasts(function) && llvm::isa<llvm::PointerType>(argIter->getType())) {
-                addrCasted = ctx->AddrSpaceCast(&*argIter, AddressSpace::ispc_default, true);
+#ifdef ISPC_XE_ENABLED
+            // Update addrspace of passed argument if needed for Xe target
+            if (g->target->isXeTarget()) {
+                addrCasted = ctx->XeUpdateAddrSpaceForParam(addrCasted, fType, i, true);
             }
+#endif
 
             ctx->StoreInst(addrCasted, argSym->storagePtr, argSym->type);
 
@@ -390,7 +395,8 @@ void Function::emitCode(FunctionEmitContext *ctx, llvm::Function *function, Sour
         // happens for example with 'export'ed functions that the app
         // calls, with tasks on GPU and with unmasked functions.
         if (argIter == function->arg_end()) {
-            Assert(type->isUnmasked || type->isExported || type->IsISPCExternal() || type->IsISPCKernel());
+            Assert(type->isUnmasked || type->isExported || type->isExternC || type->isExternSYCL ||
+                   type->IsISPCExternal() || type->IsISPCKernel());
             ctx->SetFunctionMask(LLVMMaskAllOn);
         } else {
             Assert(type->isUnmasked == false);
@@ -599,11 +605,11 @@ void Function::GenerateIR() {
         return;
     }
 
-    // If function is an 'extern C', it cannot be defined in ISPC.
     const FunctionType *type = CastType<FunctionType>(sym->type);
     Assert(type != NULL);
-    if (type->isExternC) {
-        Error(sym->pos, "\n\'extern \"C\"\' function \"%s\" cannot be defined in ISPC.", sym->name.c_str());
+
+    if (type->isExternSYCL) {
+        Error(sym->pos, "\n\'extern \"SYCL\"\' function \"%s\" cannot be defined in ISPC.", sym->name.c_str());
         return;
     }
 
@@ -631,39 +637,48 @@ void Function::GenerateIR() {
             emitCode(&ec, function, firstStmtPos);
         }
     } else {
+        // In case of multi-target compilation for extern "C" functions which were defined, we want
+        // to have a target-specific implementation for each target similar to exported functions.
+        // However declarations of extern "C"/"SYCL" functions must be not-mangled and therefore, the calls to such
+        // functions must be not-mangled. The trick to support target-specific implementation in such case is to
+        // generate definition of target-specific implementation mangled with target ("name_<target>") which would be
+        // called from a dispatch function. Since we use not-mangled names in the call, it will be a call to a dispatch
+        // function which will resolve to particular implementation. The condition below ensures that in case of
+        // multi-target compilation we will emit only one-per-target definition of extern "C" function mangled with
+        // <target> suffix.
+        if (!((type->isExternC || type->isExternSYCL) && g->mangleFunctionsWithTarget)) {
 #if ISPC_LLVM_VERSION >= ISPC_LLVM_10_0
-        llvm::TimeTraceScope TimeScope("emitCode", llvm::StringRef(sym->name));
+            llvm::TimeTraceScope TimeScope("emitCode", llvm::StringRef(sym->name));
 #endif
-        FunctionEmitContext ec(this, sym, function, firstStmtPos);
-        emitCode(&ec, function, firstStmtPos);
+            FunctionEmitContext ec(this, sym, function, firstStmtPos);
+            emitCode(&ec, function, firstStmtPos);
+        }
     }
 
     if (m->errorCount == 0) {
         // If the function is 'export'-qualified, emit a second version of
         // it without a mask parameter and without name mangling so that
-        // the application can call it
+        // the application can call it.
+        // For 'extern "C"' we emit the version without mask parameter only.
         // For Xe we emit a version without mask parameter only for ISPC kernels and
         // ISPC external functions.
-        if (type->isExported || type->IsISPCExternal() || type->IsISPCKernel()) {
+        if (type->isExported || type->isExternC || type->isExternSYCL || type->IsISPCExternal() ||
+            type->IsISPCKernel()) {
             llvm::FunctionType *ftype = type->LLVMFunctionType(g->ctx, true);
             llvm::GlobalValue::LinkageTypes linkage = llvm::GlobalValue::ExternalLinkage;
-            std::string functionName = sym->name;
-            if (g->mangleFunctionsWithTarget) {
-                functionName += std::string("_") + g->target->GetISAString();
-            }
+            auto [name_pref, name_suf] = type->GetFunctionMangledName(true);
+            std::string functionName = name_pref + sym->name + name_suf;
 
             llvm::Function *appFunction = llvm::Function::Create(ftype, linkage, functionName.c_str(), m->module);
             appFunction->setDoesNotThrow();
-            g->target->markFuncWithCallingConv(appFunction);
+            appFunction->setCallingConv(type->GetCallingConv());
 
             // Xe kernel should have "dllexport" and "CMGenxMain" attribute,
             // otherss have "CMStackCall" attribute
             if (g->target->isXeTarget()) {
                 if (type->IsISPCExternal()) {
-                    // Mark ISPCExternal() function as spirv_func and DSO local.
-                    appFunction->setCallingConv(llvm::CallingConv::SPIR_FUNC);
                     appFunction->addFnAttr("CMStackCall");
-                    appFunction->setDSOLocal(true);
+
                 } else if (type->IsISPCKernel()) {
                     appFunction->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
                     appFunction->addFnAttr("CMGenxMain");

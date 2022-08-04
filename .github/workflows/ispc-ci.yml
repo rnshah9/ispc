@@ -10,7 +10,12 @@ on:
       flow_type:
         description: 'Workflow flow type (full or smoke)'
         required: true
-        default: 'full'
+        default: 'smoke'
+        type: choice
+        options:
+        - 'full'
+        - 'smoke'
+
 env:
   SDE_MIRROR_ID: 684899
   SDE_TAR_NAME: sde-external-9.0.0-2021-11-07
@@ -69,7 +74,7 @@ jobs:
       LLVM_TAR: llvm-11.1.0-ubuntu18.04-Release+Asserts-x86.arm.wasm.tar.xz
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -105,7 +110,7 @@ jobs:
       LLVM_TAR: llvm-12.0.1-ubuntu18.04-Release+Asserts-x86.arm.wasm.tar.xz
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -141,7 +146,7 @@ jobs:
       LLVM_TAR: llvm-13.0.1-ubuntu18.04-Release+Asserts-x86.arm.wasm.tar.xz
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -177,7 +182,7 @@ jobs:
       LLVM_TAR: llvm-14.0.3-ubuntu18.04-Release+Asserts-x86.arm.wasm.tar.xz
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -213,7 +218,7 @@ jobs:
       LLVM_TAR: llvm-14.0.3-ubuntu18.04-Release-x86.arm.wasm.tar.xz
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -249,7 +254,7 @@ jobs:
       LLVM_TAR: llvm-14.0.3-ubuntu18.04-Release+Asserts-x86.arm.wasm.tar.xz
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -278,7 +283,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -319,7 +324,7 @@ jobs:
       matrix:
         target: ${{fromJson(needs.define-flow.outputs.tests_matrix_targets)}}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -360,7 +365,7 @@ jobs:
       matrix:
         target: ${{fromJson(needs.define-flow.outputs.tests_matrix_targets)}}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -400,7 +405,7 @@ jobs:
       matrix:
         target: ${{fromJson(needs.define-flow.outputs.tests_matrix_targets)}}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -439,7 +444,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -481,7 +486,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -523,7 +528,7 @@ jobs:
       BUILD_TYPE: "Release"
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -564,7 +569,7 @@ jobs:
       BUILD_TYPE: "Release"
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -605,7 +610,7 @@ jobs:
       BUILD_TYPE: "Release"
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -646,7 +651,7 @@ jobs:
       BUILD_TYPE: "Release"
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
       with:
         submodules: true
 
@@ -689,7 +694,7 @@ jobs:
         arch: [x86, x86-64]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -738,7 +743,7 @@ jobs:
         target: ${{fromJson(needs.define-flow.outputs.tests_matrix_targets)}}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -786,7 +791,7 @@ jobs:
         target: ${{fromJson(needs.define-flow.outputs.tests_matrix_targets)}}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
@@ -832,7 +837,7 @@ jobs:
         target: ${{fromJson(needs.define-flow.outputs.tests_matrix_targets)}}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Download package
       uses: actions/download-artifact@v2
       with:
