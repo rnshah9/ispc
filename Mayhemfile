@@ -3,3 +3,4 @@ target: ispc
 
 cmds:
   - cmd: /home/src/ispc/build/bin/ispc /test.c
+    filepath: /test.c
