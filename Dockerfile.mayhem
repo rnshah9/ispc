@@ -44,15 +44,10 @@ RUN apt-get -y update && apt-get install -y m4 bison flex zlib1g-dev \
 
 RUN mkdir -p build
 WORKDIR /home/src/ispc/build
-RUN cmake .. -DX86_ENABLED=ON -DARM_ENABLED=ON -DCMAKE_CXX_FLAGS=-Werror && make -j`nproc` && make check-all
+RUN cmake .. -DX86_ENABLED=ON -DARM_ENABLED=ON -DCMAKE_CXX_FLAGS=-Werror && make -j`nproc`
 # Add ISPC to PATH
 ENV PATH=/home/ispc/bin:$PATH
 
-RUN mkdir -p /deps
-RUN ldd /home/src/ispc/build/bin/ispc | tr -s '[:blank:]' '\n' | grep '^/' | xargs -I % sh -c 'cp % /deps;'
-
 FROM ubuntu:20.04 as package
 
-COPY --from=builder /deps /deps
-COPY --from=builder /home/src/ispc/build/bin/ispc /home/src/ispc/build/bin/ispc
-ENV LD_LIBRARY_PATH=/deps
+COPY --from=builder /home/src/ispc/build/bin/ispc /
